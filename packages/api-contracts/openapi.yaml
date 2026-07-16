@@ -1,0 +1,1107 @@
+openapi: 3.0.3
+info:
+  title: ZhiPath API
+  version: 0.1.0
+  description: |
+    知途 AI 智能咨询 Agent 平台 API 契约。
+
+    强制规则：
+    - 公网请求不包含可信 user_id；用户身份由 Authorization Bearer token 推导。
+    - 所有响应使用统一结构 {code, message, data, trace_id}。
+    - 内部接口（/internal/v1/*）仅供服务间调用，使用 X-Internal-Token 鉴权。
+  contact:
+    name: ZhiPath Team
+
+servers:
+  - url: http://localhost:8080
+    description: 本地开发（Go Hertz API Gateway）
+
+tags:
+  - name: health
+    description: 健康检查
+  - name: auth
+    description: 认证授权
+  - name: profile
+    description: 用户画像
+  - name: mbti
+    description: MBTI 人格测试
+  - name: conversation
+    description: 会话与消息
+  - name: file
+    description: 文件上传
+  - name: ocr
+    description: OCR 识别
+  - name: report
+    description: 深度报告
+  - name: feedback
+    description: 反馈
+  - name: internal
+    description: 内部服务接口
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 用户 access token
+    internalAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+      description: 服务间内部鉴权 token
+
+  schemas:
+    # ===== 统一响应 =====
+    ApiResponse:
+      type: object
+      required: [code, message, data, trace_id]
+      properties:
+        code:
+          type: string
+          description: 业务状态码，SUCCESS 表示成功
+          example: SUCCESS
+        message:
+          type: string
+          description: 人类可读消息
+          example: ok
+        data:
+          description: 业务数据，失败时为 null；类型由具体接口决定
+        trace_id:
+          type: string
+          description: 全链路追踪 ID
+          example: trace_01H8X...
+
+    Error:
+      type: object
+      required: [code, message, trace_id]
+      properties:
+        code:
+          type: string
+          enum:
+            - SUCCESS
+            - AUTH_FAILED
+            - TOKEN_EXPIRED
+            - RESOURCE_FORBIDDEN
+            - INVALID_PARAM
+            - MBTI_MISSING
+            - MODEL_TIMEOUT
+            - MODEL_RATE_LIMITED
+            - OCR_FAILED
+            - OCR_LOW_CONFIDENCE
+            - CRISIS_HUMAN_HANDOFF
+            - ENTITLEMENT_INSUFFICIENT
+            - NOT_FOUND
+            - INTERNAL_ERROR
+        message:
+          type: string
+        trace_id:
+          type: string
+        retryable:
+          type: boolean
+          default: false
+
+    # ===== 健康 =====
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        version:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+          description: 依赖检查项及状态
+
+    # ===== 认证 =====
+    WechatLoginRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: wx.login 返回的 code
+        client_context:
+          $ref: '#/components/schemas/ClientContext'
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+        user_id:
+          type: string
+
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    ClientContext:
+      type: object
+      properties:
+        client_type:
+          type: string
+          enum: [wechat_miniapp, ios, android, web]
+        app_version:
+          type: string
+        platform:
+          type: string
+        channel:
+          type: string
+
+    # ===== 画像 =====
+    Profile:
+      type: object
+      properties:
+        user_id:
+          type: string
+          readOnly: true
+        age_range:
+          type: string
+        city:
+          type: string
+        education:
+          type: string
+        occupation:
+          type: string
+        industry:
+          type: string
+        work_years:
+          type: number
+        income_range:
+          type: string
+        relationship_status:
+          type: string
+        current_mbti_result_id:
+          type: string
+          nullable: true
+          description: 当前生效的 MBTI 结果 ID
+        profile_completeness:
+          type: integer
+          readOnly: true
+
+    # ===== MBTI =====
+    MBTIResult:
+      type: object
+      properties:
+        mbti_result_id:
+          type: string
+          readOnly: true
+        result_type:
+          type: string
+          description: 16 型人格，如 INFP、ENTJ
+          example: INFP
+        assertiveness:
+          type: string
+          enum: [A, T]
+          description: 坚决 A / 谨慎 T
+        dimensions:
+          type: object
+          description: 四维度，含极性与百分比
+          properties:
+            energy:
+              type: object
+              properties:
+                pole:
+                  type: string
+                  enum: [E, I]
+                percentage:
+                  type: integer
+            mind:
+              type: object
+              properties:
+                pole:
+                  type: string
+                  enum: [S, N]
+                percentage:
+                  type: integer
+            nature:
+              type: object
+              properties:
+                pole:
+                  type: string
+                  enum: [T, F]
+                percentage:
+                  type: integer
+            tactics:
+              type: object
+              properties:
+                pole:
+                  type: string
+                  enum: [J, P]
+                percentage:
+                  type: integer
+        source:
+          type: string
+          enum: [manual, ocr, imported, agent_extracted]
+        confirmed_by_user:
+          type: boolean
+        is_current:
+          type: boolean
+          readOnly: true
+        tested_at:
+          type: string
+          format: date-time
+
+    MBTISubmitRequest:
+      type: object
+      required: [result_type, assertiveness]
+      properties:
+        result_type:
+          type: string
+        assertiveness:
+          type: string
+          enum: [A, T]
+        dimensions:
+          $ref: '#/components/schemas/MBTIResult/properties/dimensions'
+        source:
+          type: string
+          enum: [manual, imported]
+          default: manual
+        tested_at:
+          type: string
+          format: date-time
+
+    # ===== 会话与消息 =====
+    Conversation:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          readOnly: true
+        domain:
+          type: string
+          enum: [auto, emotion, career]
+        title:
+          type: string
+        status:
+          type: string
+          enum: [active, archived]
+        risk_level:
+          type: string
+          enum: [none, low, medium, high, critical]
+          readOnly: true
+        last_message_at:
+          type: string
+          format: date-time
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CreateConversationRequest:
+      type: object
+      properties:
+        domain:
+          type: string
+          enum: [auto, emotion, career]
+          default: auto
+        title:
+          type: string
+
+    Message:
+      type: object
+      properties:
+        message_id:
+          type: string
+          readOnly: true
+        conversation_id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        message_type:
+          type: string
+          default: text
+        content:
+          type: string
+        structured_result:
+          type: object
+          nullable: true
+          description: Agent 结构化结果
+        need_human_handoff:
+          type: boolean
+        quality_score:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    SendMessageRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          maxLength: 3000
+        consultation_type:
+          type: string
+          enum: [auto, emotion, career]
+          default: auto
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+        request_id:
+          type: string
+          description: 幂等键，重复请求返回相同结果
+        client_context:
+          $ref: '#/components/schemas/ClientContext'
+
+    Attachment:
+      type: object
+      properties:
+        file_id:
+          type: string
+        file_type:
+          type: string
+          enum: [image, pdf, document]
+
+    # ===== 文件 =====
+    FileUploadResponse:
+      type: object
+      properties:
+        file_id:
+          type: string
+        upload_url:
+          type: string
+          description: 预签名上传 URL
+        expires_at:
+          type: string
+          format: date-time
+
+    # ===== OCR =====
+    OCRResult:
+      type: object
+      properties:
+        file_id:
+          type: string
+        ocr_status:
+          type: string
+          enum: [pending, completed, failed]
+        clean_text:
+          type: string
+        avg_confidence:
+          type: number
+          format: float
+        blocks:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              text:
+                type: string
+              confidence:
+                type: number
+        need_manual_review:
+          type: boolean
+
+    # ===== 报告 =====
+    Report:
+      type: object
+      properties:
+        report_id:
+          type: string
+        conversation_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, generating, completed, failed]
+        mbti_result_id:
+          type: string
+          description: 生成时使用的 MBTI 结果 ID
+        mbti_snapshot:
+          type: object
+          description: 不可变 MBTI 快照
+        download_url:
+          type: string
+          nullable: true
+          description: 预签名下载 URL
+        created_at:
+          type: string
+          format: date-time
+
+    # ===== 反馈 =====
+    Feedback:
+      type: object
+      properties:
+        feedback_id:
+          type: string
+          readOnly: true
+        conversation_id:
+          type: string
+        message_id:
+          type: string
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        reason:
+          type: string
+        comment:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CreateFeedbackRequest:
+      type: object
+      required: [rating]
+      properties:
+        conversation_id:
+          type: string
+        message_id:
+          type: string
+        rating:
+          type: integer
+        reason:
+          type: string
+        comment:
+          type: string
+
+paths:
+  # ===== 健康检查 =====
+  /healthz:
+    get:
+      tags: [health]
+      summary: 存活探针
+      security: []
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /readyz:
+    get:
+      tags: [health]
+      summary: 就绪探针（检查 MySQL/Redis/AI Service）
+      security: []
+      responses:
+        '200':
+          description: 就绪
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: 未就绪
+
+  # ===== 认证 =====
+  /api/v1/auth/wechat/login:
+    post:
+      tags: [auth]
+      summary: 微信小程序登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WechatLoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: 刷新 access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+
+  # ===== 画像（当前用户，user_id 由 token 推导）=====
+  /api/v1/me/profile:
+    get:
+      tags: [profile]
+      summary: 查询当前用户画像
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 画像
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Profile'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags: [profile]
+      summary: 更新当前用户画像
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Profile'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Profile'
+
+  # ===== MBTI =====
+  /api/v1/me/mbti:
+    get:
+      tags: [mbti]
+      summary: 查询 MBTI 历史与当前结果
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: MBTI 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          current:
+                            $ref: '#/components/schemas/MBTIResult'
+                          history:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/MBTIResult'
+    post:
+      tags: [mbti]
+      summary: 手动提交 MBTI 测试结果
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MBTISubmitRequest'
+      responses:
+        '200':
+          description: 提交成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MBTIResult'
+
+  /api/v1/me/mbti/ocr:
+    post:
+      tags: [mbti, ocr]
+      summary: 上传 MBTI 测试截图并 OCR 识别（结果需用户确认）
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_id]
+              properties:
+                file_id:
+                  type: string
+      responses:
+        '200':
+          description: OCR 识别结果（待确认）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MBTIResult'
+
+  /api/v1/me/mbti/{mbti_result_id}/confirm:
+    post:
+      tags: [mbti]
+      summary: 确认 MBTI 结果为当前生效
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: mbti_result_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 确认成功
+
+  # ===== 会话 =====
+  /api/v1/conversations:
+    get:
+      tags: [conversation]
+      summary: 会话列表（游标分页）
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 会话列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Conversation'
+                          next_cursor:
+                            type: string
+                            nullable: true
+    post:
+      tags: [conversation]
+      summary: 创建会话
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Conversation'
+
+  /api/v1/conversations/{conversation_id}/messages:
+    get:
+      tags: [conversation]
+      summary: 消息列表（游标分页）
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 消息列表
+        '403':
+          description: 越权访问
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [conversation]
+      summary: 发送消息并触发 Agent 分析
+      description: |
+        request_id 建立幂等约束，同一 request_id 重试返回相同结果。
+        深度分析缺 MBTI 时返回 code=MBTI_MISSING。
+        危机场景返回 code=CRISIS_HUMAN_HANDOFF。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '200':
+          description: Agent 响应
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Message'
+        '409':
+          description: MBTI 缺失（深度分析）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 文件 =====
+  /api/v1/files:
+    post:
+      tags: [file]
+      summary: 申请文件预签名上传 URL
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_type, mime_type, size_bytes]
+              properties:
+                file_type:
+                  type: string
+                  enum: [image, pdf, document]
+                mime_type:
+                  type: string
+                size_bytes:
+                  type: integer
+                sha256:
+                  type: string
+      responses:
+        '201':
+          description: 预签名 URL
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FileUploadResponse'
+
+  /api/v1/files/{file_id}/ocr:
+    post:
+      tags: [ocr]
+      summary: 触发文件 OCR
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: OCR 任务已提交
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          file_id:
+                            type: string
+                          ocr_status:
+                            type: string
+
+  /api/v1/files/{file_id}/ocr-result:
+    get:
+      tags: [ocr]
+      summary: 查询 OCR 结果
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OCR 结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OCRResult'
+
+  # ===== 报告 =====
+  /api/v1/reports:
+    get:
+      tags: [report]
+      summary: 报告列表
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 报告列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Report'
+    post:
+      tags: [report]
+      summary: 申请生成深度报告（异步）
+      description: 缺 MBTI 时返回 MBTI_MISSING，不生成。
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conversation_id]
+              properties:
+                conversation_id:
+                  type: string
+      responses:
+        '202':
+          description: 报告生成中
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '409':
+          description: MBTI 缺失
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/reports/{report_id}:
+    get:
+      tags: [report]
+      summary: 查询报告详情与下载链接
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 报告详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+
+  # ===== 反馈 =====
+  /api/v1/feedbacks:
+    post:
+      tags: [feedback]
+      summary: 提交反馈
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeedbackRequest'
+      responses:
+        '201':
+          description: 反馈创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Feedback'
+
+  # ===== 内部接口（服务间）=====
+  /internal/v1/agent/invoke:
+    post:
+      tags: [internal]
+      summary: AI Agent 同步调用
+      security:
+        - internalAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trace_id, user_id, conversation_id, message]
+              properties:
+                trace_id:
+                  type: string
+                user_id:
+                  type: string
+                  description: 服务间可信 user_id
+                conversation_id:
+                  type: string
+                message:
+                  type: string
+                attachments:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Attachment'
+                client_context:
+                  $ref: '#/components/schemas/ClientContext'
+      responses:
+        '200':
+          description: Agent 结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Message'
+
+  /internal/v1/ocr/extract:
+    post:
+      tags: [internal]
+      summary: OCR 识别（内部）
+      security:
+        - internalAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trace_id, file_id, file_url]
+              properties:
+                trace_id:
+                  type: string
+                file_id:
+                  type: string
+                file_url:
+                  type: string
+                  description: 短期签名 URL
+                file_type:
+                  type: string
+      responses:
+        '200':
+          description: OCR 结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OCRResult'
