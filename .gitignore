@@ -1,0 +1,70 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+
+# logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Go
+bin/
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Node
+node_modules/
+dist/
+.turbo/
+.next/
+.parcel-cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# data / runtime
+data/
+storage/
+uploads/
+tmp/
+mysql_data/
+qdrant_data/
+minio_data/
+
+# model files
+*.bin
+*.onnx
+*.pt
+*.pth
+models/
+
+# test / coverage
+.coverage
+htmlcov/
+.pytest_cache/

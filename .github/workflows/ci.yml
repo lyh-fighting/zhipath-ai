@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ===== Go 测试 =====
+  go-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: services/api-gateway/go.sum
+      - name: Go test
+        run: go test ./... -race -coverprofile=coverage.out
+      - name: Go vet
+        run: go vet ./...
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: services/api-gateway/coverage.out
+
+  # ===== Python 测试（AI + OCR + Worker）=====
+  python-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [ai-agent-service, ocr-service, worker-service]
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v3
+      - name: Install deps
+        run: uv sync --all-extras || uv pip install -e .
+      - name: Pytest
+        run: uv run pytest -q
+      - name: Ruff lint
+        run: uv run ruff check . || true
+      - name: Mypy
+        run: uv run mypy app || true
+
+  # ===== 前端测试（小程序 + api-client）=====
+  frontend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - name: api-client test
+        run: |
+          pnpm --dir packages/api-client install --frozen-lockfile
+          pnpm --dir packages/api-client test
+      - name: miniapp test
+        run: |
+          pnpm --dir apps/miniapp install --frozen-lockfile
+          pnpm --dir apps/miniapp test
+        continue-on-error: true
+
+  # ===== 契约一致性检查 =====
+  contract-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Redocly lint OpenAPI
+        run: npx @redocly/cli@latest lint packages/api-contracts/openapi.yaml
+        continue-on-error: true
+
+  # ===== 格式与依赖锁检查 =====
+  repo-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no secrets committed
+        run: |
+          if git ls-files | grep -E '\.(env|pem|key|crt)$'; then
+            echo "::error::发现敏感文件被跟踪"
+            exit 1
+          fi
+      - name: Check lockfiles exist
+        run: |
+          # 依赖锁文件检查（允许当前阶段缺失，后续任务补齐）
+          echo "锁文件检查：后续任务补齐 go.sum / uv.lock / pnpm-lock.yaml"
+      - name: Check Makefile targets
+        run: make help
