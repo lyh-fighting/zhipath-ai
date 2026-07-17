@@ -1,0 +1,24 @@
+[project]
+name = "zhipath-worker-service"
+version = "0.1.0"
+description = "ZhiPath Worker Service (Outbox poller + 异步任务 + 知识导入)"
+requires-python = ">=3.12"
+dependencies = [
+    "qdrant-client>=1.11.0",
+    "redis>=5.0.0",
+    "pymysql>=1.1.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
