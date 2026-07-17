@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...agents import CareerAgent, DecisionCoachAgent, EmotionAgent
 from ..state import ConsultationState
 
 # ===== 危机/意图关键词 =====
@@ -74,25 +75,33 @@ def retrieve_knowledge(state: ConsultationState) -> dict[str, Any]:
 
 
 def emotion_agent(state: ConsultationState) -> dict[str, Any]:
-    # TODO Task 11: 调模型 + 禁医学诊断
+    """情感 Agent：调模型 + 禁医学诊断。MBTI 是现实情况之后的主要依据。"""
+    mbti = (state.get("mbti_profile") or {}).get("result_type", "")
+    out = EmotionAgent().analyze(state.get("message", ""), mbti)
     return {
-        "draft_answer": f"[emotion mock] 我理解你的感受：{state.get('message', '')[:50]}",
-        "agent_outputs": {"emotion": True},
+        "draft_answer": out.recommended_option,
+        "agent_outputs": {"emotion": True, "prompt_version": out.prompt_version},
     }
 
 
 def career_agent(state: ConsultationState) -> dict[str, Any]:
-    # TODO Task 11: 调模型 + 禁保证 offer/薪资/晋升
+    """职业 Agent：调模型 + 禁保证 offer/薪资/晋升。"""
+    mbti = (state.get("mbti_profile") or {}).get("result_type", "")
+    out = CareerAgent().analyze(state.get("message", ""), mbti)
     return {
-        "draft_answer": f"[career mock] 职业建议：{state.get('message', '')[:50]}",
-        "agent_outputs": {"career": True},
+        "draft_answer": out.recommended_option,
+        "agent_outputs": {"career": True, "prompt_version": out.prompt_version},
     }
 
 
 def multi_agent_collaboration(state: ConsultationState) -> dict[str, Any]:
-    e = emotion_agent(state)
-    c = career_agent(state)
-    return {"draft_answer": f"{e['draft_answer']}\n{c['draft_answer']}", "agent_outputs": {"mixed": True}}
+    """混合问题并行执行情感+职业，由决策教练合并。"""
+    mbti = (state.get("mbti_profile") or {}).get("result_type", "")
+    out = DecisionCoachAgent().analyze(state.get("message", ""), mbti)
+    return {
+        "draft_answer": out.recommended_option,
+        "agent_outputs": {"mixed": True, "prompt_version": out.prompt_version},
+    }
 
 
 def unsupported_response(state: ConsultationState) -> dict[str, Any]:
