@@ -15,6 +15,7 @@ func TestMigrationFilesPaired(t *testing.T) {
 		"000003_agent_memory",
 		"000004_order_payment",
 		"000005_risk_followup_outbox",
+		"000006_privacy_consent",
 	}
 	dir := filepath.Join("..", "migrations")
 	for _, m := range migrations {
