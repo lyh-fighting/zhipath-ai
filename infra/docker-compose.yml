@@ -92,27 +92,7 @@ services:
       "
 
   # ===== n8n 自动化 =====
-  n8n:
-    image: n8nio/n8n:1.62.4
-    restart: unless-stopped
-    environment:
-      N8N_HOST: localhost
-      N8N_PORT: 5678
-      N8N_PROTOCOL: http
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-dev-n8n-encryption-key}
-      GENERIC_TIMEZONE: Asia/Shanghai
-      N8N_API_KEY: ${N8N_API_KEY:-dev-n8n-api-key}
-    ports:
-      - "5678:5678"
-    volumes:
-      - n8n_data:/home/node/.n8n
-      - ./n8n/workflows:/files/workflows:ro
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5678/healthz"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
+  # n8n 已移除：回访/复盘/通知改由 Worker 代码实现（见 app/jobs/notification.py）
 
   # ===== Qdrant collection 初始化 =====
   qdrant-init:
@@ -225,4 +205,3 @@ volumes:
   redis_data:
   qdrant_data:
   minio_data:
-  n8n_data:
