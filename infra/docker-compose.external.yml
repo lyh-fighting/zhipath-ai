@@ -1,0 +1,21 @@
+# 外部资源 override：停用本地 MySQL/Redis/Qdrant/MinIO，仅启动应用服务连外部资源
+# 用法：docker compose -f infra/docker-compose.yml -f infra/docker-compose.external.yml --profile apps up -d
+services:
+  mysql:
+    profiles: ["disabled"]
+    image: busybox
+  redis:
+    profiles: ["disabled"]
+    image: busybox
+  qdrant:
+    profiles: ["disabled"]
+    image: busybox
+  minio:
+    profiles: ["disabled"]
+    image: busybox
+  minio-init:
+    profiles: ["disabled"]
+    image: busybox
+  qdrant-init:
+    profiles: ["disabled"]
+    image: busybox
