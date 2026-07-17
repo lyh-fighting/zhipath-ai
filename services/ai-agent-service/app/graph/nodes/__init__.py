@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import Any
 
 from ...agents import CareerAgent, DecisionCoachAgent, EmotionAgent
+from ...quality import score as quality_score
+from ...safety import classify, safety_response
 from ..state import ConsultationState
 
 # ===== 危机/意图关键词 =====
@@ -47,10 +49,13 @@ def intent_router(state: ConsultationState) -> dict[str, Any]:
 
 
 def risk_detector(state: ConsultationState) -> dict[str, Any]:
-    """风险检测。intent_router 已初检，此处补充并标记人工介入。"""
-    if state.get("safety_risk_level") in ("high", "critical"):
-        return {"need_human_handoff": True}
-    return {}
+    """风险检测。用 safety.classify 检测自伤/自杀/家暴/未成年人/暴力。HIGH/CRITICAL 转人工。"""
+    result = classify(state.get("message", ""))
+    update: dict[str, Any] = {"safety_risk_level": result.risk_level.value}
+    if result.need_human_handoff:
+        update["need_human_handoff"] = True
+        update["final_answer"] = safety_response(result.risk_type, result.risk_level)
+    return update
 
 
 def mbti_completeness_check(state: ConsultationState) -> dict[str, Any]:
@@ -109,9 +114,14 @@ def unsupported_response(state: ConsultationState) -> dict[str, Any]:
 
 
 def quality_check(state: ConsultationState) -> dict[str, Any]:
-    # TODO Task 12: 事实核查/安全合规/可执行性评分
-    score = 70 if state.get("draft_answer") else 0
-    return {"quality_score": score}
+    """质量评分：事实依据/可执行性/安全/结构完整性。"""
+    safety_ok = state.get("safety_risk_level") in (None, "none", "low")
+    q = quality_score(
+        state.get("draft_answer", ""),
+        state.get("structured_result"),
+        safety_ok=safety_ok,
+    )
+    return {"quality_score": q.total}
 
 
 def repair_answer(state: ConsultationState) -> dict[str, Any]:
