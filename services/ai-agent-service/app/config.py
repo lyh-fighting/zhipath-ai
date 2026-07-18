@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     primary_model: str = "deepseek:deepseek-chat"
     fallback_model: str = "openai:gpt-4o-mini"
 
+    # 阿里云百炼（OpenAI 兼容模式）
+    bailian_api_key: str = ""
+    bailian_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    bailian_model: str = "qwen-plus"
+
     # 依赖
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"

@@ -155,6 +155,8 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token}
+    env_file:
+      - ../services/ai-agent-service/.env
     ports:
       - "8001:8001"
     healthcheck:
