@@ -112,7 +112,7 @@ services:
   api-gateway:
     profiles: [apps]
     build:
-      context: ../../services/api-gateway
+      context: ../services/api-gateway
       dockerfile: Dockerfile
     depends_on:
       mysql:
@@ -121,8 +121,8 @@ services:
         condition: service_healthy
     environment:
       APP_ENV: ${APP_ENV:-local}
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: "consult:consult@tcp(mysql:3306)/zhipath?parseTime=true&loc=Local"
+      REDIS_URL: redis://redis:6379/0
       AI_AGENT_SERVICE_URL: http://ai-agent-service:8001
       OCR_SERVICE_URL: http://ocr-service:8002
       OBJECT_STORAGE_ENDPOINT: minio:9000
@@ -141,7 +141,7 @@ services:
   ai-agent-service:
     profiles: [apps]
     build:
-      context: ../../services/ai-agent-service
+      context: ../services/ai-agent-service
       dockerfile: Dockerfile
     depends_on:
       redis:
@@ -166,7 +166,7 @@ services:
   ocr-service:
     profiles: [apps]
     build:
-      context: ../../services/ocr-service
+      context: ../services/ocr-service
       dockerfile: Dockerfile
     environment:
       APP_ENV: ${APP_ENV:-local}
@@ -185,7 +185,7 @@ services:
   worker-service:
     profiles: [apps]
     build:
-      context: ../../services/worker-service
+      context: ../services/worker-service
       dockerfile: Dockerfile
     depends_on:
       mysql:
@@ -194,11 +194,9 @@ services:
         condition: service_healthy
     environment:
       APP_ENV: ${APP_ENV:-local}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: "consult:consult@tcp(mysql:3306)/zhipath?parseTime=true&loc=Local"
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
-      N8N_BASE_URL: http://n8n:5678
-      N8N_API_KEY: ${N8N_API_KEY:-dev-n8n-api-key}
 
 volumes:
   mysql_data:
