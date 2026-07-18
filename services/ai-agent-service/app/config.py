@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     # 阿里云百炼（OpenAI 兼容模式）
     bailian_api_key: str = ""
     bailian_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    bailian_model: str = "qwen-plus"
+    bailian_model: str = "qwen3.7-plus"  # 兼容单模型配置
+    bailian_models: str = ""  # 多模型按优先级，逗号分隔；为空时回退 bailian_model
 
     # 依赖
     redis_url: str = "redis://localhost:6379/0"

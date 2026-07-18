@@ -31,19 +31,29 @@ app = FastAPI(title="ZhiPath AI Agent Service", version="0.1.0")
 
 # ---------------------------------------------------------------------------
 # Provider 装配：百炼（OpenAI 兼容）优先，缺 key 回退 Mock
+# 支持多模型列表：额度耗尽后自动切换下一个模型
 # ---------------------------------------------------------------------------
 _REAL_PROVIDER: OpenAICompatibleProvider | None = None
 if settings.bailian_api_key:
+    raw_models = [m.strip() for m in settings.bailian_models.split(",") if m.strip()]
+    _model_list = raw_models if raw_models else [settings.bailian_model]
     _REAL_PROVIDER = OpenAICompatibleProvider(
         name="bailian",
         api_key=settings.bailian_api_key,
         base_url=settings.bailian_base_url,
-        model=settings.bailian_model,
+        models=_model_list,
     )
 
 
 def _provider():
     return _REAL_PROVIDER or MockProvider()
+
+
+# 专业边界拒绝语（不消耗模型额度）
+_OFF_TOPIC_REPLY = (
+    "我是专注于职业规划与心理咨询的知途助手，目前只回答与职业方向、求职困惑、"
+    "情绪压力、人生决策相关的问题。你可以试着告诉我，你最近在工作上或情绪上有什么困扰？"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -137,9 +147,12 @@ async def healthz() -> dict:
 
 @app.get("/readyz")
 async def readyz() -> dict:
+    current_model = "mock"
+    if _REAL_PROVIDER:
+        current_model = ",".join(_REAL_PROVIDER.models) if len(_REAL_PROVIDER.models) <= 3 else f"{','.join(_REAL_PROVIDER.models[:3])},..."
     return {
         "status": "ok",
-        "model": settings.bailian_model if _REAL_PROVIDER else "mock",
+        "model": current_model,
         "checks": {"redis": "ok", "qdrant": "ok"},
     }
 
@@ -154,12 +167,23 @@ async def agent_invoke(payload: InvokePayload) -> dict:
     try:
         # 1) 意图分析（路由 + 危机识别）
         intent = _analyze_intent(payload.message)
-        # 2) 评测式回答
+        intent_key = intent.get("intent", "general")
+
+        # 2) 专业边界拦截：无关话题直接拒绝，不调用对话模型
+        if intent_key == "off_topic":
+            return _build_response(
+                payload,
+                content=_OFF_TOPIC_REPLY,
+                intent=intent,
+                human=False,
+            )
+
+        # 3) 评测式回答
         reply = _answer(conversation_type, payload.history, payload.message)
     except Exception as e:  # noqa: BLE001
         msg = str(e)
-        if "quota" in msg.lower() or "Free quota" in msg or "AllocationQuota" in msg:
-            note = ("⚠️ AI 服务额度不足：请在「阿里云百炼」控制台为当前 API Key 充值，"
+        if "quota" in msg.lower() or "Free quota" in msg or "AllocationQuota" in msg or "insufficient_quota" in msg.lower():
+            note = ("⚠️ 当前所有免费模型额度均不足：请在「阿里云百炼」控制台为当前 API Key 充值，"
                     "或关闭「仅使用免费额度」模式后重试。")
         elif "auth" in msg.lower() or "401" in msg or "403" in msg:
             note = "⚠️ AI 服务鉴权失败：请检查 BAILIAN_API_KEY 是否正确。"
@@ -179,13 +203,17 @@ async def agent_invoke(payload: InvokePayload) -> dict:
             "trace_id": payload.trace_id,
         }
 
+    return _build_response(payload, content=reply, intent=intent, human=bool(intent.get("needs_human", False)))
+
+
+def _build_response(payload: InvokePayload, content: str, intent: dict, human: bool) -> dict:
     return {
         "code": "SUCCESS",
         "message": "ok",
         "data": {
             "message_id": "m_real",
             "role": "assistant",
-            "content_summary": reply,
+            "content_summary": content,
             "structured_result": {
                 "intent": intent.get("intent", "general"),
                 "intent_confidence": intent.get("confidence", 0.0),
@@ -193,7 +221,7 @@ async def agent_invoke(payload: InvokePayload) -> dict:
                 "tags": intent.get("tags", []),
                 "prompt_version": INTENT_PROMPT_VERSION,
             },
-            "need_human_handoff": bool(intent.get("needs_human", False)),
+            "need_human_handoff": human,
             "quality_score": 0,
         },
         "trace_id": payload.trace_id,
