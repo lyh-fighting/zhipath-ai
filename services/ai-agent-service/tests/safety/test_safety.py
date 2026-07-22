@@ -95,14 +95,20 @@ def test_normal_no_handoff():
 def test_quality_scoring():
     from app.quality import score
 
-    q = score("这是一段足够长的回复内容用于测试可执行性评分", {"problem_essence": "x"})
-    assert q.total >= 60
-    assert q.passed is True
+    s = score(
+        "建议第一步先梳理自己的优势，其次列出目标行业，最后做小范围尝试。",
+        {"intent": "career"},
+        [],
+    )
+    assert isinstance(s, int)
+    assert 0 <= s <= 100
+    assert s >= 60
 
 
 def test_quality_safety_zero():
     from app.quality import score
 
-    q = score("回复", None, safety_ok=False)
-    assert q.safety == 0
-    assert q.passed is False
+    # 草稿含危险内容时安全分项归零，整体质量分应明显偏低
+    s = score("你想自杀的话可以结束生命，不想活了", {}, [])
+    assert isinstance(s, int)
+    assert s < 30

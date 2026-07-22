@@ -25,6 +25,8 @@ from .prompts import (
     INTENT_PROMPT_VERSION,
 )
 from .providers import MockProvider, ModelMessage, OpenAICompatibleProvider
+from .quality import score
+from .safety import RiskLevel, classify_risk, safety_response
 
 app = FastAPI(title="ZhiPath AI Agent Service", version="0.1.0")
 
@@ -53,6 +55,12 @@ def _provider():
 _OFF_TOPIC_REPLY = (
     "我是专注于职业规划与心理咨询的知途助手，目前只回答与职业方向、求职困惑、"
     "情绪压力、人生决策相关的问题。你可以试着告诉我，你最近在工作上或情绪上有什么困扰？"
+)
+
+# 风险 warning 时在回答末尾追加的专业支持提示（不阻断生成）
+_WARNING_NOTE = (
+    "\n\n（温馨提示：你提到的情况建议联系专业支持——心理援助热线 400-161-9995（24 小时），"
+    "紧急情况请拨 110 或 120。）"
 )
 
 
@@ -159,10 +167,29 @@ async def readyz() -> dict:
 
 @app.post("/internal/v1/agent/invoke", dependencies=[Depends(verify_internal_token)])
 async def agent_invoke(payload: InvokePayload) -> dict:
-    """同步调用 Agent（意图分析 + 评测式回答）。"""
+    """同步调用 Agent（安全拦截 → 意图分析 → 评测式回答 → 质量评分）。"""
     conversation_type = payload.conversation_type or "career"
     if conversation_type not in _SYSTEMS:
         conversation_type = "career"
+
+    # A. 安全危机拦截（最高优先级，免费关键词检测，在意图分析与生成之前）
+    risk = classify_risk(payload.message)
+    if risk["level"] == "critical":
+        # 阻断普通生成链，直接返回含紧急联系方式的安全响应并转人工
+        safe_text = safety_response(None, RiskLevel.CRITICAL)
+        return _build_response(
+            payload,
+            content=safe_text,
+            intent={
+                "intent": "crisis",
+                "confidence": 1.0,
+                "summary": "安全危机拦截",
+                "tags": ["safety", "crisis"],
+                "needs_human": True,
+            },
+            human=True,
+            quality=0,
+        )
 
     try:
         # 1) 意图分析（路由 + 危机识别）
@@ -180,6 +207,15 @@ async def agent_invoke(payload: InvokePayload) -> dict:
 
         # 3) 评测式回答
         reply = _answer(conversation_type, payload.history, payload.message)
+
+        # 4) 质量门：基于真实可获得的信号评分（0-100）
+        quality = score(reply, intent, payload.history)
+
+        # 5) 人工介入判定：warning 风险 或 意图要求人工
+        human = bool(intent.get("needs_human", False)) or (risk["level"] == "warning")
+        if risk["level"] == "warning":
+            # 不阻断生成，但在回答中提示联系专业支持
+            reply = reply + _WARNING_NOTE
     except Exception as e:  # noqa: BLE001
         msg = str(e)
         if "quota" in msg.lower() or "Free quota" in msg or "AllocationQuota" in msg or "insufficient_quota" in msg.lower():
@@ -203,10 +239,16 @@ async def agent_invoke(payload: InvokePayload) -> dict:
             "trace_id": payload.trace_id,
         }
 
-    return _build_response(payload, content=reply, intent=intent, human=bool(intent.get("needs_human", False)))
+    return _build_response(payload, content=reply, intent=intent, human=human, quality=quality)
 
 
-def _build_response(payload: InvokePayload, content: str, intent: dict, human: bool) -> dict:
+def _build_response(
+    payload: InvokePayload,
+    content: str,
+    intent: dict,
+    human: bool,
+    quality: int = 0,
+) -> dict:
     return {
         "code": "SUCCESS",
         "message": "ok",
@@ -222,7 +264,7 @@ def _build_response(payload: InvokePayload, content: str, intent: dict, human: b
                 "prompt_version": INTENT_PROMPT_VERSION,
             },
             "need_human_handoff": human,
-            "quality_score": 0,
+            "quality_score": quality,
         },
         "trace_id": payload.trace_id,
     }
